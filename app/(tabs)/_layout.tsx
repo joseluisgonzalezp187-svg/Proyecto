@@ -33,7 +33,7 @@ export default function TabsLayout() {
           ),
         }}
       />
-      <Tabs.Screen
+            <Tabs.Screen
         name="progress"
         options={{
           title: 'Progreso',
@@ -42,6 +42,16 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="community"
+        options={{
+          title: 'Comunidad',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="account-group" size={size} color={color} />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="profile"
         options={{

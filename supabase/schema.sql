@@ -210,3 +210,102 @@ CREATE POLICY "session_sets_all" ON session_sets FOR ALL
 
 -- Anuncios: lectura para autenticados
 CREATE POLICY "nutrition_ads_select" ON nutrition_ads FOR SELECT TO authenticated USING (is_active = TRUE);
+
+
+-- ─── COMUNIDAD DE ENTRENAMIENTO ─────────────────────────────────────────────
+-- Migración social: ejecutar este bloque si el esquema base ya estaba creado.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS username TEXT;
+
+UPDATE profiles
+SET username = LOWER(REGEXP_REPLACE(SPLIT_PART(email, '@', 1), '[^a-zA-Z0-9_]+', '-', 'g'))
+WHERE username IS NULL;
+
+ALTER TABLE profiles ALTER COLUMN username SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_username_unique ON profiles (LOWER(username));
+
+CREATE TABLE IF NOT EXISTS workout_posts (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id         UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  workout_session_id UUID REFERENCES workout_sessions(id) ON DELETE SET NULL,
+  title           TEXT NOT NULL,
+  content         TEXT,
+  duration_seconds INT CHECK (duration_seconds IS NULL OR duration_seconds >= 0),
+  completed_sets  INT NOT NULL DEFAULT 0 CHECK (completed_sets >= 0),
+  total_sets      INT NOT NULL DEFAULT 0 CHECK (total_sets >= 0),
+  exercise_count  INT NOT NULL DEFAULT 0 CHECK (exercise_count >= 0),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_workout_posts_created ON workout_posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workout_posts_user ON workout_posts(user_id);
+
+CREATE TABLE IF NOT EXISTS workout_comments (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  post_id    UUID NOT NULL REFERENCES workout_posts(id) ON DELETE CASCADE,
+  user_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  content    TEXT NOT NULL CHECK (char_length(content) BETWEEN 1 AND 500),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_workout_comments_post ON workout_comments(post_id, created_at);
+
+ALTER TABLE workout_posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workout_comments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "profiles_select_own" ON profiles;
+DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
+DROP POLICY IF EXISTS "profiles_select_authenticated" ON profiles;
+CREATE POLICY "profiles_select_authenticated" ON profiles FOR SELECT TO authenticated USING (TRUE);
+CREATE POLICY "profiles_update_own" ON profiles FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "workout_posts_select_authenticated" ON workout_posts FOR SELECT TO authenticated USING (TRUE);
+CREATE POLICY "workout_posts_insert_own" ON workout_posts FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "workout_posts_update_own" ON workout_posts FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "workout_posts_delete_own" ON workout_posts FOR DELETE USING (auth.uid() = user_id);
+
+CREATE POLICY "workout_comments_select_authenticated" ON workout_comments FOR SELECT TO authenticated USING (TRUE);
+CREATE POLICY "workout_comments_insert_own" ON workout_comments FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "workout_comments_delete_own" ON workout_comments FOR DELETE USING (auth.uid() = user_id);
+
+-- El trigger existente también asigna un username válido a nuevos usuarios.
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+DECLARE
+  base_username TEXT;
+BEGIN
+  base_username := LOWER(REGEXP_REPLACE(SPLIT_PART(NEW.email, '@', 1), '[^a-zA-Z0-9_]+', '-', 'g'));
+  INSERT INTO profiles (id, email, display_name, username)
+  VALUES (NEW.id, NEW.email, split_part(NEW.email, '@', 1), base_username);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- ─── LIKES Y REACCIONES ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS workout_post_reactions (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  post_id    UUID NOT NULL REFERENCES workout_posts(id) ON DELETE CASCADE,
+  user_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  reaction   TEXT NOT NULL DEFAULT 'like' CHECK (reaction IN ('like', 'fire', 'strong')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (post_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_reactions_post ON workout_post_reactions(post_id);
+
+ALTER TABLE workout_post_reactions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "post_reactions_select_authenticated" ON workout_post_reactions;
+DROP POLICY IF EXISTS "post_reactions_insert_own" ON workout_post_reactions;
+DROP POLICY IF EXISTS "post_reactions_update_own" ON workout_post_reactions;
+DROP POLICY IF EXISTS "post_reactions_delete_own" ON workout_post_reactions;
+CREATE POLICY "post_reactions_select_authenticated" ON workout_post_reactions FOR SELECT TO authenticated USING (TRUE);
+CREATE POLICY "post_reactions_insert_own" ON workout_post_reactions FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "post_reactions_update_own" ON workout_post_reactions FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "post_reactions_delete_own" ON workout_post_reactions FOR DELETE USING (auth.uid() = user_id);
+
+
+-- ─── FORO GENERAL: CATEGORÍAS DE TEMAS ──────────────────────────────────────
+ALTER TABLE public.workout_posts
+  ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'general';
+
+CREATE INDEX IF NOT EXISTS idx_workout_posts_category ON public.workout_posts(category);

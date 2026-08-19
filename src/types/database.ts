@@ -24,7 +24,9 @@ export type RoutineGoal = 'fuerza' | 'hipertrofia' | 'resistencia' | 'general';
 export interface Profile {
   id: string;
   email: string;
-  display_name: string | null;
+    display_name: string | null;
+  username: string;
+
   weight_unit: 'kg' | 'lb';
   created_at: string;
   updated_at: string;
@@ -97,7 +99,53 @@ export interface SessionSet {
   created_at: string;
 }
 
+export type ForumCategory = 'general' | 'rutinas' | 'ejercicios' | 'nutricion' | 'progreso' | 'preguntas';
+
+export interface WorkoutPost {
+  id: string;
+  user_id: string;
+  workout_session_id: string | null;
+  title: string;
+  content: string | null;
+  category: ForumCategory;
+  duration_seconds: number | null;
+  completed_sets: number;
+  total_sets: number;
+  exercise_count: number;
+  created_at: string;
+  profile?: Pick<Profile, 'username' | 'display_name'> | null;
+  comments?: WorkoutComment[];
+  reactions?: WorkoutReaction[];
+  reactionCount?: number;
+  hasReacted?: boolean;
+}
+
+export interface CreateForumPostInput {
+  userId: string;
+  title: string;
+  content: string;
+  category: ForumCategory;
+}
+
+export interface WorkoutReaction {
+  id: string;
+  post_id: string;
+  user_id: string;
+  reaction: 'like' | 'fire' | 'strong';
+  created_at: string;
+}
+
+export interface WorkoutComment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  profile?: Pick<Profile, 'username' | 'display_name'> | null;
+}
+
 export interface NutritionAd {
+
   id: string;
   title: string;
   description: string | null;

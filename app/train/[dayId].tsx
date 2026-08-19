@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ImageBackground, ScrollView, StyleSheet, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ActivityIndicator, Button, Card, Chip, ProgressBar, Text, TextInput } from 'react-native-paper';
+import { ActivityIndicator, Button, Card, Chip, ProgressBar, Switch, Text, TextInput } from 'react-native-paper';
+
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useRoutine } from '@/hooks/useExercises';
 import { completeSessionSet, finishWorkoutSession, startWorkoutSession } from '@/lib/api/routines';
+import { createWorkoutPost } from '@/lib/api/community';
+import { useAuth } from '@/providers/AuthProvider';
+
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { WorkoutShareButton } from '@/components/WorkoutShareButton';
 import { APP_COLORS, APP_RADIUS, APP_SHADOWS, APP_SPACING } from '@/lib/constants';
@@ -22,7 +26,9 @@ function formatDuration(totalSeconds: number) {
 
 export default function TrainScreen() {
   const { dayId, routineId } = useLocalSearchParams<{ dayId: string; routineId: string }>();
-  const { data: routine, isLoading } = useRoutine(routineId);
+    const { data: routine, isLoading } = useRoutine(routineId);
+  const { user } = useAuth();
+
   const {
     sessionId,
     completedSets,
@@ -38,7 +44,9 @@ export default function TrainScreen() {
   const [started, setStarted] = useState(false);
   const [savingSetKey, setSavingSetKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sessionNotes, setSessionNotes] = useState('');
+    const [sessionNotes, setSessionNotes] = useState('');
+  const [shareWithCommunity, setShareWithCommunity] = useState(false);
+
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
@@ -87,8 +95,23 @@ export default function TrainScreen() {
 
   const handleFinish = async () => {
     try {
-      if (sessionId) await finishWorkoutSession(sessionId, sessionNotes.trim() || undefined);
+            if (sessionId) {
+        await finishWorkoutSession(sessionId, sessionNotes.trim() || undefined);
+        if (shareWithCommunity && user) {
+          await createWorkoutPost({
+            userId: user.id,
+            workoutSessionId: sessionId,
+            title: `${day?.name ?? 'Entrenamiento'} completado`,
+            content: sessionNotes.trim() || 'Sesión completada. ¡A seguir avanzando!',
+            durationSeconds: elapsedSeconds,
+            completedSets: completedCount,
+            totalSets,
+            exerciseCount: exercises.length,
+          });
+        }
+      }
       endSession();
+
       router.back();
     } catch {
       setError('No se pudo finalizar el entreno. Inténtalo de nuevo.');
@@ -213,8 +236,9 @@ export default function TrainScreen() {
                   </View>
                   <Text style={styles.sessionDetailHint}>Se guardará al finalizar</Text>
                 </View>
-                <TextInput
+                                <TextInput
                   label="Notas de la sesión"
+
                   value={sessionNotes}
                   onChangeText={setSessionNotes}
                   mode="outlined"
@@ -225,8 +249,16 @@ export default function TrainScreen() {
                   textColor={APP_COLORS.text}
                   outlineColor={APP_COLORS.borderStrong}
                   activeOutlineColor={APP_COLORS.primary}
-                  left={<TextInput.Icon icon="notebook-outline" color={APP_COLORS.textMuted} />}
+                                    left={<TextInput.Icon icon="notebook-outline" color={APP_COLORS.textMuted} />}
                 />
+                <View style={styles.shareRow}>
+                  <View style={styles.shareCopy}>
+                    <Text style={styles.shareTitle}>Compartir en Comunidad</Text>
+                    <Text style={styles.shareHint}>Publica esta sesión para recibir comentarios.</Text>
+                  </View>
+                  <Switch value={shareWithCommunity} onValueChange={setShareWithCommunity} color={APP_COLORS.primary} />
+                </View>
+
               </Card.Content>
             </Card>
 
@@ -353,7 +385,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: APP_COLORS.background },
   content: { padding: APP_SPACING.lg, paddingBottom: APP_SPACING.xxxl },
   loadingScreen: { alignItems: 'center', backgroundColor: APP_COLORS.background, flex: 1, gap: APP_SPACING.sm, justifyContent: 'center' },
-  loadingText: { color: APP_COLORS.textMuted },
+    loadingText: { color: APP_COLORS.textMuted },
+  shareRow: { alignItems: 'center', borderTopColor: APP_COLORS.border, borderTopWidth: 1, flexDirection: 'row', marginTop: APP_SPACING.md, paddingTop: APP_SPACING.md },
+  shareCopy: { flex: 1 },
+  shareTitle: { color: APP_COLORS.text, fontWeight: '800' },
+  shareHint: { color: APP_COLORS.textMuted, fontSize: 12, lineHeight: 18, marginTop: 2 },
+
   sessionHeader: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between', marginBottom: APP_SPACING.lg },
   trainingBanner: { height: 132, justifyContent: 'flex-end', marginBottom: APP_SPACING.lg, overflow: 'hidden' },
   trainingBannerAsset: { borderRadius: APP_RADIUS.lg, resizeMode: 'cover' },
